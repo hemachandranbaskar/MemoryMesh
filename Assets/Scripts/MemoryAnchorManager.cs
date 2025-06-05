@@ -23,6 +23,8 @@ public class MemoryAnchorManager : MonoBehaviour
     [Header("Prefab Setup")]
     public GameObject visualPrefab;
     public Transform spawnPoint;
+    public MicRecorder recorder;
+    [SerializeField] private GroqTTS ttsSpeaker;
 
     private string _pendingImage;
     private string _pendingPrompt;
@@ -42,7 +44,15 @@ public class MemoryAnchorManager : MonoBehaviour
     // Trigger this on controller input or button to place anchor + generate image
     public void HandleTodoAnchor(string todoText)
     {
-        StartCoroutine(SendPromptToAPI(todoText));
+        if (recorder != null && !string.IsNullOrEmpty(recorder.LastTranscription))
+        {
+            StartCoroutine(SendPromptToAPI(recorder.LastTranscription));
+        }
+        else
+        {
+            Debug.LogWarning("No transcription found or recorder not assigned. Sending default prompt...");
+            StartCoroutine(SendPromptToAPI(todoText));
+        }
     }
 
     IEnumerator SendPromptToAPI(string prompt)
@@ -87,7 +97,7 @@ public class MemoryAnchorManager : MonoBehaviour
 
     private IEnumerator TryApplyVisualToPreview(Texture2D tex, string prompt)
     {
-        float timeout = 3f;
+        float timeout = 50f;
         float elapsed = 0f;
 
         while (elapsed < timeout)
@@ -122,8 +132,12 @@ public class MemoryAnchorManager : MonoBehaviour
         int index = PlayerPrefs.GetInt(NumUuidsPlayerPref, 0);
         string keyPrefix = "uuid" + index;
 
+        string filePath = Application.persistentDataPath + $"/image_{anchor.Uuid}.png";
+        File.WriteAllBytes(filePath, Convert.FromBase64String(_pendingImage));
+
         PlayerPrefs.SetString(keyPrefix, anchor.Uuid.ToString());
-        PlayerPrefs.SetString(keyPrefix + "_image", _pendingImage);
+        //PlayerPrefs.SetString(keyPrefix + "_image", _pendingImage);
+        PlayerPrefs.SetString(keyPrefix + "_image_path", filePath);
         PlayerPrefs.SetString(keyPrefix + "_prompt", _pendingPrompt);
 
         PlayerPrefs.SetInt(NumUuidsPlayerPref, index + 1);
@@ -135,6 +149,11 @@ public class MemoryAnchorManager : MonoBehaviour
         if (anchorObj.CompareTag("AnchorPreview"))
         {
             anchorObj.tag = "PlacedAnchor";
+        }
+
+        if (ttsSpeaker != null)
+        {
+            _ = ttsSpeaker.GenerateAndPlaySpeech($"Anchor placed for {_pendingPrompt}.  What would you like to remember next?");
         }
 
         _pendingImage = null;
@@ -151,12 +170,21 @@ public class MemoryAnchorManager : MonoBehaviour
 
         for (int i = 0; i < count; i++)
         {
+            string path = PlayerPrefs.GetString("uuid" + i + "_image_path", "");
             if (PlayerPrefs.GetString("uuid" + i) == uuid)
             {
-                string base64 = PlayerPrefs.GetString("uuid" + i + "_image", "");
-                string prompt = PlayerPrefs.GetString("uuid" + i + "_prompt", "");
-                Texture2D tex = DecodeImage(base64);
-                ApplyVisualToAnchorObject(anchorObject, tex, prompt);
+                //string base64 = PlayerPrefs.GetString("uuid" + i + "_image", "");
+                string prompt = PlayerPrefs.GetString("uuid" + i + "_prompt", ""); 
+                if (File.Exists(path))
+                {
+                    byte[] bytes = File.ReadAllBytes(path);
+                    Texture2D tex = new Texture2D(2, 2);
+                    tex.LoadImage(bytes);
+                    ApplyVisualToAnchorObject(anchor.gameObject, tex, prompt);
+                }
+                //string prompt = PlayerPrefs.GetString("uuid" + i + "_prompt", "");
+                //Texture2D tex = DecodeImage(base64);
+                //ApplyVisualToAnchorObject(anchorObject, tex, prompt);
                 break;
             }
         }
@@ -238,6 +266,7 @@ public class MemoryAnchorManager : MonoBehaviour
     public class PromptRequest
     {
         public string prompt;
+        public bool generate_metaphor = true;
     }
 
     [Serializable]
