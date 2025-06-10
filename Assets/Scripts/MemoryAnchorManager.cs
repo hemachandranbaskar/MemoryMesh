@@ -25,6 +25,7 @@ public class MemoryAnchorManager : MonoBehaviour
     public Transform spawnPoint;
     public MicRecorder recorder;
     [SerializeField] private GroqTTS ttsSpeaker;
+    [SerializeField] private MemoryVoiceAssistant voiceAssistant;
 
     private string _pendingImage;
     private string _pendingPrompt;
@@ -39,6 +40,9 @@ public class MemoryAnchorManager : MonoBehaviour
         }
         _spatialAnchorCore.OnAnchorCreateCompleted.AddListener(OnAnchorCreated);
         _spatialAnchorCore.OnAnchorEraseCompleted.AddListener(RemoveAnchorFromLocalStorage);
+
+        if (voiceAssistant != null)
+            voiceAssistant.OnReloaded();
     }
 
     // Trigger this on controller input or button to place anchor + generate image
@@ -46,6 +50,8 @@ public class MemoryAnchorManager : MonoBehaviour
     {
         if (recorder != null && !string.IsNullOrEmpty(recorder.LastTranscription))
         {
+            if (voiceAssistant != null)
+                voiceAssistant.OnPromptReceived(recorder.LastTranscription);
             StartCoroutine(SendPromptToAPI(recorder.LastTranscription));
         }
         else
@@ -66,6 +72,8 @@ public class MemoryAnchorManager : MonoBehaviour
             request.downloadHandler = new DownloadHandlerBuffer();
             request.SetRequestHeader("Content-Type", "application/json");
 
+            if (voiceAssistant != null)
+                voiceAssistant.OnGenerating();
             yield return request.SendWebRequest();
 
             if (request.result != UnityWebRequest.Result.Success)
@@ -91,6 +99,8 @@ public class MemoryAnchorManager : MonoBehaviour
 
                 Texture2D tex = DecodeImage(base64);
                 StartCoroutine(TryApplyVisualToPreview(tex, prompt));
+                if (voiceAssistant != null)
+                    voiceAssistant.OnImageReady();
             }
         }
     }
@@ -151,9 +161,9 @@ public class MemoryAnchorManager : MonoBehaviour
             anchorObj.tag = "PlacedAnchor";
         }
 
-        if (ttsSpeaker != null)
+        if (ttsSpeaker != null && voiceAssistant != null)
         {
-            _ = ttsSpeaker.GenerateAndPlaySpeech($"Anchor placed for {_pendingPrompt}.  What would you like to remember next?");
+            voiceAssistant.OnAnchorPlaced(_pendingPrompt);
         }
 
         _pendingImage = null;
@@ -165,6 +175,7 @@ public class MemoryAnchorManager : MonoBehaviour
     {
         //if (result != OVRSpatialAnchor.OperationResult.Success) return;
 
+        voiceAssistant.OnLoadingMemories();
         string uuid = anchor.Uuid.ToString();
         int count = PlayerPrefs.GetInt(NumUuidsPlayerPref, 0);
 
